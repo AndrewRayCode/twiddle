@@ -1,10 +1,19 @@
 'use client';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useCallback, useState } from 'react';
+import React, {
+  useCallback,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useEffect,
+} from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import { useSpring, animated } from '@react-spring/three';
+import { useGameStore } from '@/store/gameStore';
+import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
 
 type NEIGHBOR = [number, number];
 const UP: NEIGHBOR = [0, -1];
@@ -96,9 +105,6 @@ function Pipe({
   );
 }
 
-const TILE_SPACING = 4; // Space between pipes
-const GRID_DIMENSIONS = [4, 6] as const; // Size of the grid
-
 const dedupeNeighbors = (neighbors: [number, number][]) => {
   return neighbors.filter(
     (neighbor, index, self) =>
@@ -108,22 +114,52 @@ const dedupeNeighbors = (neighbors: [number, number][]) => {
 };
 
 function RotatingPipeDemo() {
-  // Create a 3x3 grid of rotation states
-  const [rotations, setRotations] = useState<number[][]>(() =>
-    Array(GRID_DIMENSIONS[0])
-      .fill(0)
-      .map(() =>
-        Array(GRID_DIMENSIONS[1])
-          .fill(0)
-          .map(() => randRotation()),
-      ),
-  );
+  const {
+    rotations,
+    neighborsToRotate,
+    rotating,
+    setRotations,
+    setNeighborsToRotate,
+    setRotating,
+    incrementRotationCount,
+  } = useGameStore();
 
-  const [neighborsToRotate, setNeighborsToRotate] = useState<
-    [number, number][]
-  >([]);
+  // Create a single audio instance and preload it
+  const rotationSound = useRef<HTMLAudioElement[] | null>(null);
 
-  const [rotating, setRotating] = useState(false);
+  useEffect(() => {
+    // Initialize audio once
+    rotationSound.current = [
+      new Audio('/stop.mp3'),
+      new Audio('/stop.mp3'),
+      new Audio('/stop.mp3'),
+      new Audio('/stop.mp3'),
+      new Audio('/stop.mp3'),
+    ];
+    rotationSound.current.forEach((l) => l.load()); // Preload the audio
+
+    // Cleanup on unmount
+    return () => {
+      if (rotationSound.current) {
+        rotationSound.current.forEach((l) => l.pause());
+        rotationSound.current = null;
+      }
+    };
+  }, []);
+
+  const playRotationSound = useCallback((i: number) => {
+    if (rotationSound.current) {
+      // Reset the audio to start if it's already playing
+      rotationSound.current[i].currentTime = 0;
+      // Create a play promise and handle any autoplay restrictions
+      const playPromise = rotationSound.current[i].play();
+      if (playPromise) {
+        playPromise.catch((error) => {
+          console.log('Audio playback failed:', error);
+        });
+      }
+    }
+  }, []);
 
   const findNeighborsToRotate = (
     row: number,
@@ -153,8 +189,23 @@ function RotatingPipeDemo() {
   };
 
   const rotateCells = (rotations: number[][], cells: [number, number][]) => {
-    console.log('rotateCells', { cells });
     setRotating(true);
+    incrementRotationCount();
+    for (
+      let i = 0;
+      i <
+      Math.max(Math.min(rotationSound.current!.length - 1, cells.length), 1);
+      i++
+    ) {
+      ((i: number) =>
+        setTimeout(
+          () => {
+            playRotationSound(i);
+          },
+          60 * i + Math.random() * 40,
+        ))(i);
+    }
+
     let newNeighborsToRotate: [number, number][] = [];
 
     const newRotations = [...rotations.map((row) => [...row])];
@@ -192,16 +243,12 @@ function RotatingPipeDemo() {
   };
 
   const handleClick = (row: number, col: number) => {
-    if (rotating) {
-      return;
-    }
-    console.log('handleClick', { row, col });
-
+    if (rotating) return;
     setNeighborsToRotate([[row, col]]);
     rotateCells(rotations, [[row, col]]);
   };
 
-  const offset = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2; // Offset to center the grid
+  const offset = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2;
 
   return (
     <>
@@ -228,17 +275,32 @@ function RotatingPipeDemo() {
 }
 
 function App() {
+  const { rotating, resetBoard, rotationCount, highScore } = useGameStore();
+
   return (
-    <Canvas
-      style={{ width: '100%', height: '100%' }}
-      camera={{ position: [0, 0, 15] }}
-    >
-      <ambientLight intensity={0.9} />
-      <pointLight position={[1, 1, 1]} />
-      {/* <axesHelper scale={10} /> */}
-      <RotatingPipeDemo />
-      <OrbitControls />
-    </Canvas>
+    <div className="w-screen h-screen relative">
+      <div className="absolute top-4 left-4 flex flex-col gap-2 bg-black/50 p-4 rounded text-white">
+        <div>Rotations: {rotationCount}</div>
+        <div>High Score: {highScore}</div>
+      </div>
+      <button
+        className="absolute top-4 right-4 px-4 py-2 bg-orange-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={resetBoard}
+        disabled={rotating}
+        style={{ zIndex: 1000 }}
+      >
+        Reset Board
+      </button>
+      <Canvas
+        style={{ width: '100%', height: '100%' }}
+        camera={{ position: [0, 0, 20] }}
+      >
+        <ambientLight intensity={0.5} />
+        <pointLight position={[0, 0, 20]} intensity={200} />
+        <RotatingPipeDemo />
+        <OrbitControls />
+      </Canvas>
+    </div>
   );
 }
 
