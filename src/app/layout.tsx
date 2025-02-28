@@ -15,6 +15,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Twiddle Flip',
   description: 'Try to get the most rotations in a row!',
+  openGraph: {
+    images: [
+      {
+        url: '/flip.jpg',
+        width: 1653,
+        height: 1654,
+      },
+    ],
+  },
 };
 
 export default function RootLayout({
