@@ -9,12 +9,12 @@ const randRotation = () => Math.floor(Math.random() * 4) as ROTATION;
 
 interface GameState {
   rotations: number[][];
-  neighborsToRotate: [number, number][];
+  neighborsToRotate: NEIGHBOR[];
   rotating: boolean;
   rotationCount: number;
   highScore: number;
   setRotations: (rotations: number[][]) => void;
-  setNeighborsToRotate: (neighbors: [number, number][]) => void;
+  setNeighborsToRotate: (neighbors: NEIGHBOR[]) => void;
   setRotating: (rotating: boolean) => void;
   incrementRotationCount: () => void;
   resetBoard: () => void;
