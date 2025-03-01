@@ -121,22 +121,26 @@ function RotatingPipeDemo() {
     setRotations,
     setNeighborsToRotate,
     setRotating,
-    incrementRotationCount,
+    addToRotationCount,
   } = useGameStore();
 
   // Create a single audio instance and preload it
   const rotationSound = useRef<HTMLAudioElement[] | null>(null);
+  const isMobile = useRef<boolean>(false);
 
   useEffect(() => {
-    // Initialize audio once
-    rotationSound.current = [
-      new Audio('/stop.mp3'),
-      new Audio('/stop.mp3'),
-      new Audio('/stop.mp3'),
-      new Audio('/stop.mp3'),
-      new Audio('/stop.mp3'),
-    ];
-    rotationSound.current.forEach((l) => l.load()); // Preload the audio
+    // Check if device is mobile
+    isMobile.current = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    // Initialize audio once - use smaller array for mobile
+    const audioCount = isMobile.current ? 1 : 5;
+    rotationSound.current = Array(audioCount)
+      .fill(null)
+      .map(() => {
+        const audio = new Audio('/stop.mp3');
+        audio.load();
+        return audio;
+      });
 
     // Cleanup on unmount
     return () => {
@@ -149,10 +153,11 @@ function RotatingPipeDemo() {
 
   const playRotationSound = useCallback((i: number) => {
     if (rotationSound.current) {
+      const audioIndex = isMobile.current ? 0 : i;
       // Reset the audio to start if it's already playing
-      rotationSound.current[i].currentTime = 0;
+      rotationSound.current[audioIndex].currentTime = 0;
       // Create a play promise and handle any autoplay restrictions
-      const playPromise = rotationSound.current[i].play();
+      const playPromise = rotationSound.current[audioIndex].play();
       if (playPromise) {
         playPromise.catch((error) => {
           console.log('Audio playback failed:', error);
@@ -190,7 +195,8 @@ function RotatingPipeDemo() {
 
   const rotateCells = (rotations: number[][], cells: [number, number][]) => {
     setRotating(true);
-    incrementRotationCount();
+    addToRotationCount(cells.length); // Count all tiles being rotated
+
     for (
       let i = 0;
       i <

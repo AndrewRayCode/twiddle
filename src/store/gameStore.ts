@@ -16,7 +16,7 @@ interface GameState {
   setRotations: (rotations: number[][]) => void;
   setNeighborsToRotate: (neighbors: NEIGHBOR[]) => void;
   setRotating: (rotating: boolean) => void;
-  incrementRotationCount: () => void;
+  addToRotationCount: (count: number) => void;
   resetBoard: () => void;
 }
 
@@ -38,10 +38,10 @@ export const useGameStore = create<GameState>()(
       setNeighborsToRotate: (neighbors) =>
         set({ neighborsToRotate: neighbors }),
       setRotating: (rotating) => set({ rotating }),
-      incrementRotationCount: () =>
+      addToRotationCount: (count) =>
         set((state) => ({
-          rotationCount: state.rotationCount + 1,
-          highScore: Math.max(state.rotationCount + 1, state.highScore),
+          rotationCount: state.rotationCount + count,
+          highScore: Math.max(state.rotationCount + count, state.highScore),
         })),
       resetBoard: () =>
         set((state) => {
