@@ -245,7 +245,7 @@ function RotatingPipeDemo() {
       } else {
         rotateCells(newRotations, newNeighborsToRotate);
       }
-    }, 850);
+    }, 800);
   };
 
   const handleClick = (row: number, col: number) => {
