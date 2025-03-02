@@ -29,7 +29,10 @@ const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
 } as const;
 
 const PIPE_LENGTH = 2.0;
-const BASE_HEIGHT = 1.0;
+const BASE_HEIGHT = 2.0;
+const PIPE_COLOR = '#ddccff';
+const BASE_COLOR = '#666677';
+const BASE_COLOR_HOVER = '#8899ff';
 
 interface PipeProps {
   color: string | null;
@@ -39,8 +42,6 @@ interface PipeProps {
   row: number;
   col: number;
 }
-
-const PIPE_COLOR = '#ddccff';
 
 function Pipe({
   rotation,
@@ -67,7 +68,7 @@ function Pipe({
   });
   const { springPipeColor, springBaseColor } = useSpring({
     springPipeColor: color ? '#eeddff' : PIPE_COLOR,
-    springBaseColor: color || (hovered ? '#8899ff' : '#666677'),
+    springBaseColor: color || (hovered ? BASE_COLOR_HOVER : BASE_COLOR),
     config: {
       mass: 2,
       tension: 800,
@@ -102,15 +103,15 @@ function Pipe({
       </mesh>
       {/* Round base */}
       <mesh
-        position={[0, 0, -BASE_HEIGHT]}
+        position={[0, 0, -BASE_HEIGHT / 2]}
         rotation={[Math.PI / 2, 0, 0]}
         onClick={onClick}
       >
         <cylinderGeometry args={[1.95, 1.95, BASE_HEIGHT, 32]} />
         <animated.meshStandardMaterial
           color={springBaseColor}
-          roughness={0.5}
-          metalness={0.5}
+          roughness={0.6}
+          metalness={0.7}
         />
       </mesh>
       {/* <Html>
