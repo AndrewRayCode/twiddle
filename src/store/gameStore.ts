@@ -2,22 +2,24 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { GRID_DIMENSIONS } from '../constants';
 
-type ROTATION = 0 | 1 | 2 | 3;
-type NEIGHBOR = [number, number];
+export type ROTATION = 0 | 1 | 2 | 3;
+export type CELL = [number, number];
 
 const randRotation = () => Math.floor(Math.random() * 4) as ROTATION;
 
 interface GameState {
   rotations: number[][];
-  neighborsToRotate: NEIGHBOR[];
+  cellsToRotate: CELL[];
   rotating: boolean;
   rotationCount: number;
   highScore: number;
+  islandBonus: number;
   setRotations: (rotations: number[][]) => void;
-  setNeighborsToRotate: (neighbors: NEIGHBOR[]) => void;
+  setCellsToRotate: (neighbors: CELL[]) => void;
   setRotating: (rotating: boolean) => void;
   addToRotationCount: (count: number) => void;
   resetBoard: () => void;
+  setIslandBonus: (bonus: number) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -30,19 +32,22 @@ export const useGameStore = create<GameState>()(
             .fill(0)
             .map(() => randRotation()),
         ),
-      neighborsToRotate: [],
+      cellsToRotate: [],
       rotating: false,
       rotationCount: 0,
       highScore: 0,
+      islandBonus: 1,
       setRotations: (rotations) => set({ rotations }),
-      setNeighborsToRotate: (neighbors) =>
-        set({ neighborsToRotate: neighbors }),
+      setCellsToRotate: (neighbors) => set({ cellsToRotate: neighbors }),
       setRotating: (rotating) => set({ rotating }),
       addToRotationCount: (count) =>
-        set((state) => ({
-          rotationCount: state.rotationCount + count,
-          highScore: Math.max(state.rotationCount + count, state.highScore),
-        })),
+        set((state) => {
+          const score = (state.rotationCount + count) * state.islandBonus;
+          return {
+            rotationCount: score,
+            highScore: Math.max(score, state.highScore),
+          };
+        }),
       resetBoard: () =>
         set((state) => {
           if (state.rotating) return state;
@@ -54,10 +59,11 @@ export const useGameStore = create<GameState>()(
                   .fill(0)
                   .map(() => randRotation()),
               ),
-            neighborsToRotate: [],
+            cellsToRotate: [],
             rotationCount: 0,
           };
         }),
+      setIslandBonus: (bonus) => set({ islandBonus: bonus }),
     }),
     {
       name: 'pipe-game-storage',
