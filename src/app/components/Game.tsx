@@ -248,9 +248,7 @@ function GameContainer() {
       // Create a play promise and handle any autoplay restrictions
       const playPromise = rotationSound.current[audioIndex].play();
       if (playPromise) {
-        playPromise.catch((error) => {
-          console.log('Audio playback failed:', error);
-        });
+        playPromise.catch(console.error);
       }
     }
   }, []);
@@ -284,6 +282,19 @@ function GameContainer() {
 
   const rotateCells = (rotations: number[][], cells: CELL[]) => {
     setRotating(true);
+
+    addToRotationCount(cells.length);
+
+    const islands = countIslands(cells).filter((i) => i.size > 2);
+    const islandBonus = Math.max(islands.length, 1);
+    setIslandBonus(islandBonus);
+    setIslands(islands);
+
+    // Play bonus sound if we have an island bonus
+    if (islandBonus > 1 && bonusSound.current) {
+      bonusSound.current.currentTime = 0;
+      bonusSound.current.play().catch(console.error);
+    }
 
     for (
       let i = 0;
@@ -328,35 +339,14 @@ function GameContainer() {
 
     setTimeout(
       () => {
-        // Calculate island bonus
-        const islands = countIslands(cells).filter((i) => i.size > 2);
-        const islandBonus = Math.max(islands.length, 1);
-        setIslandBonus(islandBonus);
-        setIslands(islands);
-
-        // Add score
-        addToRotationCount(cells.length);
-
-        // Play bonus sound if we have an island bonus
-        if (islandBonus > 1 && bonusSound.current) {
-          bonusSound.current.currentTime = 0;
-          bonusSound.current.play().catch(console.error);
-        }
-
         setCellsToRotate(newNeighborsToRotate);
-        setTimeout(
-          () => {
-            if (newNeighborsToRotate.length === 0) {
-              setRotating(false);
-            } else {
-              rotateCells(newRotations, newNeighborsToRotate);
-            }
-          },
-          islandBonus > 1 ? 1500 : 0,
-        );
+        if (newNeighborsToRotate.length === 0) {
+          setRotating(false);
+        } else {
+          rotateCells(newRotations, newNeighborsToRotate);
+        }
       },
-      800,
-      // islandBonus > 1 ? 2000 : 800,
+      islandBonus > 1 ? 2000 : 800,
     );
   };
 
