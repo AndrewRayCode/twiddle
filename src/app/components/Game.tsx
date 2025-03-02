@@ -1,19 +1,13 @@
 'use client';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React, {
-  useCallback,
-  useState,
-  forwardRef,
-  useImperativeHandle,
-  useRef,
-  useEffect,
-} from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Html, OrbitControls } from '@react-three/drei';
 import { useSpring, animated } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
 import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
+import { useThree } from '@react-three/fiber';
+import { PerspectiveCamera, MathUtils } from 'three';
 
 // Relative offset position
 type NEIGHBOR = [number, number];
@@ -21,8 +15,6 @@ const UP: NEIGHBOR = [0, -1];
 const DOWN: NEIGHBOR = [0, 1];
 const LEFT: NEIGHBOR = [-1, 0];
 const RIGHT: NEIGHBOR = [1, 0];
-
-const randRotation = () => Math.floor(Math.random() * 4) as ROTATION;
 
 // Matrix neighbor targeting [+-x, +-y]
 const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
@@ -36,19 +28,35 @@ const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
   [3]: [LEFT, DOWN],
 } as const;
 
-const CYLINDER_HEIGHT = 2.0;
+const PIPE_LENGTH = 2.0;
+const BASE_HEIGHT = 1.0;
 
 interface PipeProps {
   color: string | null;
   rotation: number;
   position?: [number, number, number];
   onClick?: () => void;
-  idx: string;
+  row: number;
+  col: number;
 }
 
 const PIPE_COLOR = '#ddccff';
 
-function Pipe({ rotation, color, position = [0, 0, 0], onClick }: PipeProps) {
+function Pipe({
+  rotation,
+  color,
+  row,
+  col,
+  position = [0, 0, 0],
+  onClick,
+}: PipeProps) {
+  const { hoveredCell, setHoveredCell, rotating } = useGameStore();
+  const hovered =
+    !rotating &&
+    hoveredCell &&
+    hoveredCell[0] === row &&
+    hoveredCell[1] === col;
+
   const { springRotation } = useSpring({
     springRotation: (rotation * Math.PI) / 2,
     config: {
@@ -57,35 +65,50 @@ function Pipe({ rotation, color, position = [0, 0, 0], onClick }: PipeProps) {
       friction: 40,
     },
   });
-  const pipeColor = color ? '#eeddff' : PIPE_COLOR;
+  const { springPipeColor, springBaseColor } = useSpring({
+    springPipeColor: color ? '#eeddff' : PIPE_COLOR,
+    springBaseColor: color || (hovered ? '#8899ff' : '#666677'),
+    config: {
+      mass: 2,
+      tension: 800,
+      friction: 80,
+    },
+  });
+
   return (
-    <animated.group position={position} rotation-z={springRotation}>
+    <animated.group
+      position={position}
+      rotation-z={springRotation}
+      onPointerOver={() => setHoveredCell([row, col])}
+      onPointerOut={() => setHoveredCell(null)}
+    >
       {/* Vertical section */}
       <mesh position={[0, -1.0, 0]}>
-        <cylinderGeometry args={[0.3, 0.3, CYLINDER_HEIGHT, 16]} />
-        <meshStandardMaterial
-          color={pipeColor}
+        <cylinderGeometry args={[0.3, 0.3, PIPE_LENGTH, 16]} />
+        <animated.meshStandardMaterial
+          color={springPipeColor}
           roughness={0.2}
           metalness={0.5}
         />
       </mesh>
       {/* Horizontal section */}
       <mesh position={[1.0, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.3, 0.3, CYLINDER_HEIGHT, 16]} />
-        <meshStandardMaterial
-          color={pipeColor}
+        <cylinderGeometry args={[0.3, 0.3, PIPE_LENGTH, 16]} />
+        <animated.meshStandardMaterial
+          color={springPipeColor}
           roughness={0.2}
           metalness={0.5}
         />
       </mesh>
+      {/* Round base */}
       <mesh
-        position={[0, 0, -0.1]}
+        position={[0, 0, -BASE_HEIGHT]}
         rotation={[Math.PI / 2, 0, 0]}
         onClick={onClick}
       >
-        <cylinderGeometry args={[1.95, 1.95, 0.1, 32]} />
-        <meshStandardMaterial
-          color={color || '#666677'}
+        <cylinderGeometry args={[1.95, 1.95, BASE_HEIGHT, 32]} />
+        <animated.meshStandardMaterial
+          color={springBaseColor}
           roughness={0.5}
           metalness={0.5}
         />
@@ -165,7 +188,7 @@ const groupColors = [
   '#D9B3FF', // Light Purple
 ];
 
-function RotatingPipeDemo() {
+function GameContainer() {
   const {
     rotations,
     cellsToRotate,
@@ -188,7 +211,6 @@ function RotatingPipeDemo() {
   const bonusSound = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Initialize both sounds
     isMobile.current = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
     // Initialize rotation sounds
@@ -262,18 +284,6 @@ function RotatingPipeDemo() {
 
   const rotateCells = (rotations: number[][], cells: CELL[]) => {
     setRotating(true);
-    addToRotationCount(cells.length);
-
-    const islands = countIslands(cells).filter((i) => i.size > 2);
-    const islandBonus = Math.max(islands.length, 1);
-    setIslandBonus(islandBonus);
-    setIslands(islands);
-
-    // Play bonus sound if we have an island bonus
-    if (islandBonus > 1 && bonusSound.current) {
-      bonusSound.current.currentTime = 0;
-      bonusSound.current.play().catch(console.error);
-    }
 
     for (
       let i = 0;
@@ -318,14 +328,35 @@ function RotatingPipeDemo() {
 
     setTimeout(
       () => {
-        setCellsToRotate(newNeighborsToRotate);
-        if (newNeighborsToRotate.length === 0) {
-          setRotating(false);
-        } else {
-          rotateCells(newRotations, newNeighborsToRotate);
+        // Calculate island bonus
+        const islands = countIslands(cells).filter((i) => i.size > 2);
+        const islandBonus = Math.max(islands.length, 1);
+        setIslandBonus(islandBonus);
+        setIslands(islands);
+
+        // Add score
+        addToRotationCount(cells.length);
+
+        // Play bonus sound if we have an island bonus
+        if (islandBonus > 1 && bonusSound.current) {
+          bonusSound.current.currentTime = 0;
+          bonusSound.current.play().catch(console.error);
         }
+
+        setCellsToRotate(newNeighborsToRotate);
+        setTimeout(
+          () => {
+            if (newNeighborsToRotate.length === 0) {
+              setRotating(false);
+            } else {
+              rotateCells(newRotations, newNeighborsToRotate);
+            }
+          },
+          islandBonus > 1 ? 1500 : 0,
+        );
       },
-      islandBonus > 1 ? 2000 : 800,
+      800,
+      // islandBonus > 1 ? 2000 : 800,
     );
   };
 
@@ -347,13 +378,14 @@ function RotatingPipeDemo() {
           return (
             <Pipe
               key={`${rowIndex}-${colIndex}`}
-              idx={`${rowIndex}, ${colIndex}`}
               position={[
                 rowIndex * TILE_SPACING - offset,
                 -(colIndex * TILE_SPACING - offset),
                 0,
               ]}
               rotation={rotation}
+              row={rowIndex}
+              col={colIndex}
               onClick={() => handleClick(rowIndex, colIndex)}
               color={
                 cell
@@ -370,10 +402,45 @@ function RotatingPipeDemo() {
   );
 }
 
+const fov = 50;
+
 function App() {
-  const { rotating, resetBoard, rotationCount, highScore, islandBonus } =
-    useGameStore();
+  const {
+    hoveredCell,
+    rotating,
+    resetBoard,
+    rotationCount,
+    highScore,
+    islandBonus,
+  } = useGameStore();
   const resetSound = useRef<HTMLAudioElement | null>(null);
+
+  const CameraController = () => {
+    const { camera: tc, size } = useThree();
+
+    useEffect(() => {
+      const updateCamera = () => {
+        const camera = tc as PerspectiveCamera;
+        const gridAspect = GRID_DIMENSIONS[0] / GRID_DIMENSIONS[1];
+        if (camera.aspect > gridAspect) {
+          // window too large
+          camera.fov = fov;
+        } else {
+          // window too narrow
+          const cameraHeight = Math.tan(MathUtils.degToRad(fov / 2));
+          const ratio = camera.aspect / gridAspect;
+          const newCameraHeight = cameraHeight / ratio;
+          camera.fov = MathUtils.radToDeg(Math.atan(newCameraHeight)) * 2;
+        }
+      };
+
+      updateCamera();
+      window.addEventListener('resize', updateCamera);
+      return () => window.removeEventListener('resize', updateCamera);
+    }, [tc, size]);
+
+    return null;
+  };
 
   useEffect(() => {
     resetSound.current = new Audio('/flip/reset.mp3');
@@ -397,7 +464,9 @@ function App() {
   };
 
   return (
-    <div className={`w-screen h-screen relative`}>
+    <div
+      className={`w-screen h-screen relative ${!rotating && hoveredCell ? 'cursor-pointer' : ''}`}
+    >
       <div className="absolute top-4 left-4 flex flex-col gap-2 bg-blue-950/80 p-4 rounded-lg border border-blue-400/30 backdrop-blur-sm">
         <div className="text-blue-100 font-semibold flex items-center gap-2">
           <span className="text-blue-400">Rotations:</span>
@@ -440,13 +509,19 @@ function App() {
       </button>
       <Canvas
         style={{ width: '100%', height: '100%' }}
-        camera={{ position: [0, 0, 20] }}
+        camera={{
+          type: 'PerspectiveCamera',
+          position: [0, 0, 50],
+          fov,
+          near: 0.1,
+          far: 1000,
+        }}
       >
+        <CameraController />
         <ambientLight intensity={0.9} />
         <pointLight position={[-10, -10, 20]} intensity={500} />
         <pointLight position={[10, 10, 20]} intensity={500} />
-        <RotatingPipeDemo />
-        <OrbitControls />
+        <GameContainer />
       </Canvas>
     </div>
   );

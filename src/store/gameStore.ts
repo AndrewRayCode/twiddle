@@ -14,12 +14,14 @@ interface GameState {
   rotationCount: number;
   highScore: number;
   islandBonus: number;
+  hoveredCell: CELL | null;
   setRotations: (rotations: number[][]) => void;
   setCellsToRotate: (neighbors: CELL[]) => void;
   setRotating: (rotating: boolean) => void;
   addToRotationCount: (count: number) => void;
   resetBoard: () => void;
   setIslandBonus: (bonus: number) => void;
+  setHoveredCell: (cell: CELL | null) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -37,6 +39,7 @@ export const useGameStore = create<GameState>()(
       rotationCount: 0,
       highScore: 0,
       islandBonus: 1,
+      hoveredCell: null,
       setRotations: (rotations) => set({ rotations }),
       setCellsToRotate: (neighbors) => set({ cellsToRotate: neighbors }),
       setRotating: (rotating) => set({ rotating }),
@@ -64,6 +67,7 @@ export const useGameStore = create<GameState>()(
           };
         }),
       setIslandBonus: (bonus) => set({ islandBonus: bonus }),
+      setHoveredCell: (cell) => set({ hoveredCell: cell }),
     }),
     {
       name: 'pipe-game-storage',

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: [
       {
-        url: '/flip.jpg',
+        url: '/flip/flip.jpg',
         width: 1653,
         height: 1654,
       },
