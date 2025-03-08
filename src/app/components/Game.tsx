@@ -39,7 +39,7 @@ const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
 const BASE_HEIGHT = 1.3;
 
 const PIPE_COLOR = '#ddccff';
-const BASE_COLOR = '#666677';
+const BASE_COLOR = '#555566';
 const BASE_ROTATING_COLOR = '#eeeeff';
 const BASE_COLOR_HOVER = '#8899ff';
 const PIPE_ROTATING_COLOR = '#ff5577';
@@ -117,7 +117,8 @@ function Pipe({
       <mesh geometry={nodes.Cylinder.geometry} onClick={onClick}>
         <animated.meshStandardMaterial
           color={springPipeColor}
-          roughness={0.1}
+          // Experiment: Give variety to pipe roughness
+          roughness={(((col % 3) + (row % 3)) % 3) * 0.2}
           metalness={0.8}
         />
       </mesh>
@@ -206,6 +207,7 @@ function GameContainer() {
     addToRotationCount,
     setIslandBonus,
     islandBonus,
+    resetScore,
   } = useGameStore();
 
   // Create a single audio instance and preload it
@@ -305,8 +307,7 @@ function GameContainer() {
 
     for (
       let i = 0;
-      i <
-      Math.max(Math.min(rotationSound.current!.length - 1, cells.length), 1);
+      i < Math.max(Math.min(rotationSound.current!.length, cells.length), 1);
       i++
     ) {
       ((i: number) =>
@@ -314,7 +315,7 @@ function GameContainer() {
           () => {
             playRotationSound(i);
           },
-          60 * i + Math.random() * 40,
+          100 * i + Math.random() * 40,
         ))(i);
     }
 
@@ -354,6 +355,7 @@ function GameContainer() {
         setCellsToRotate(newNeighborsToRotate);
         if (newNeighborsToRotate.length === 0) {
           setRotating(false);
+          resetScore();
         } else {
           rotateCells(newRotations, newNeighborsToRotate);
         }
@@ -364,6 +366,7 @@ function GameContainer() {
 
   const handleClick = (row: number, col: number) => {
     if (rotating) return;
+    resetScore();
     setCellsToRotate([[row, col]]);
     rotateCells(rotations, [[row, col]]);
   };

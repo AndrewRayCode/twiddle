@@ -15,6 +15,7 @@ interface GameState {
   highScore: number;
   islandBonus: number;
   hoveredCell: CELL | null;
+  resetScore: () => void;
   setRotations: (rotations: number[][]) => void;
   setCellsToRotate: (neighbors: CELL[]) => void;
   setRotating: (rotating: boolean) => void;
@@ -40,6 +41,7 @@ export const useGameStore = create<GameState>()(
       highScore: 0,
       islandBonus: 1,
       hoveredCell: null,
+      resetScore: () => set({ rotationCount: 0 }),
       setRotations: (rotations) => set({ rotations }),
       setCellsToRotate: (neighbors) => set({ cellsToRotate: neighbors }),
       setRotating: (rotating) => set({ rotating }),
