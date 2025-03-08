@@ -13,7 +13,7 @@ import {
   Mesh,
   Material,
 } from 'three';
-import { PerspectiveCamera } from '@react-three/drei';
+import { PerspectiveCamera, Environment } from '@react-three/drei';
 import { useGLTF } from '@react-three/drei';
 import { GLTF } from 'three-stdlib';
 
@@ -36,12 +36,13 @@ const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
   [3]: [LEFT, DOWN],
 } as const;
 
-const PIPE_LENGTH = 2.0;
-const BASE_HEIGHT = 2.0;
+const BASE_HEIGHT = 1.3;
+
 const PIPE_COLOR = '#ddccff';
 const BASE_COLOR = '#666677';
-
+const BASE_ROTATING_COLOR = '#eeeeff';
 const BASE_COLOR_HOVER = '#8899ff';
+const PIPE_ROTATING_COLOR = '#ff5577';
 
 // Add type for the GLB model
 type GLTFResult = GLTF & {
@@ -54,7 +55,8 @@ type GLTFResult = GLTF & {
 };
 
 interface PipeProps {
-  color: string | null;
+  isRotating: boolean;
+  islandColor: string | null;
   rotation: number;
   position?: [number, number, number];
   onClick?: () => void;
@@ -64,7 +66,8 @@ interface PipeProps {
 
 function Pipe({
   rotation,
-  color,
+  isRotating,
+  islandColor,
   row,
   col,
   position = [0, 0, 0],
@@ -81,14 +84,21 @@ function Pipe({
   const { springRotation } = useSpring({
     springRotation: (rotation * Math.PI) / 2,
     config: {
-      mass: 1,
-      tension: 800,
-      friction: 30,
+      mass: 0.7,
+      tension: 300,
+      friction: 20,
     },
   });
   const { springPipeColor, springBaseColor } = useSpring({
-    springPipeColor: color ? '#ff5577' : PIPE_COLOR,
-    springBaseColor: color || (hovered ? BASE_COLOR_HOVER : BASE_COLOR),
+    springPipeColor:
+      islandColor || (isRotating ? PIPE_ROTATING_COLOR : PIPE_COLOR),
+    springBaseColor:
+      islandColor ||
+      (isRotating
+        ? BASE_ROTATING_COLOR
+        : hovered
+          ? BASE_COLOR_HOVER
+          : BASE_COLOR),
     config: {
       mass: 2,
       tension: 800,
@@ -107,8 +117,8 @@ function Pipe({
       <mesh geometry={nodes.Cylinder.geometry} onClick={onClick}>
         <animated.meshStandardMaterial
           color={springPipeColor}
-          roughness={0.2}
-          metalness={0.5}
+          roughness={0.1}
+          metalness={0.8}
         />
       </mesh>
 
@@ -122,7 +132,7 @@ function Pipe({
         <animated.meshStandardMaterial
           color={springBaseColor}
           roughness={0.6}
-          metalness={0.7}
+          metalness={0.0}
         />
       </mesh>
     </animated.group>
@@ -379,11 +389,10 @@ function GameContainer() {
               row={rowIndex}
               col={colIndex}
               onClick={() => handleClick(rowIndex, colIndex)}
-              color={
-                cell
-                  ? islandBonus > 1
-                    ? groupColors[islands.findIndex((i) => i.has(cell))]
-                    : 'white'
+              isRotating={!!cell}
+              islandColor={
+                islandBonus > 1 && cell
+                  ? groupColors[islands.findIndex((i) => i.has(cell))]
                   : null
               }
             />
@@ -469,14 +478,24 @@ function App() {
     <div
       className={`w-screen h-screen relative ${!rotating && hoveredCell ? 'cursor-pointer' : ''}`}
     >
-      <div className="absolute top-4 left-4 flex flex-col gap-2 bg-blue-950/80 p-4 rounded-lg border border-blue-400/30 backdrop-blur-sm">
+      <div
+        className="absolute top-4 left-4 flex flex-col gap-2 bg-blue-950/80 p-4 rounded-lg border border-blue-400/30 backdrop-blur-sm"
+        style={{
+          zIndex: 1000,
+          textShadow: '0px 1px 1px rgba(0, 0, 0, 0.5)',
+        }}
+      >
         <div className="text-blue-100 font-semibold flex items-center gap-2">
           <span className="text-blue-400">Rotations:</span>
-          <span className="font-mono text-lg">{rotationCount}</span>
+          <span className="font-mono text-lg">
+            {rotationCount.toLocaleString()}
+          </span>
         </div>
         <div className="text-blue-100 font-semibold flex items-center gap-2">
           <span className="text-blue-400">High Score:</span>
-          <span className="font-mono text-lg">{highScore}</span>
+          <span className="font-mono text-lg">
+            {highScore.toLocaleString()}
+          </span>
         </div>
         {islandBonus > 1 && (
           <div
@@ -509,16 +528,7 @@ function App() {
       >
         Reset Board
       </button>
-      <Canvas
-        style={{ width: '100%', height: '100%' }}
-        // camera={{
-        //   type: 'PerspectiveCamera',
-        //   position: [0, 0, 50],
-        //   fov,
-        //   near: 0.1,
-        //   far: 1000,
-        // }}
-      >
+      <Canvas shadows style={{ width: '100%', height: '100%' }}>
         <PerspectiveCamera
           makeDefault
           fov={fov}
@@ -526,10 +536,17 @@ function App() {
           ref={cameraRef}
         />
         <CameraController fov={fov} setFov={setFov} cameraRef={cameraRef} />
-        <ambientLight intensity={0.9} />
+        <ambientLight intensity={0.1} />
         <pointLight position={[-10, -10, 20]} intensity={500} />
         <pointLight position={[10, 10, 20]} intensity={500} />
         <GameContainer />
+        <Environment
+          preset="sunset"
+          background
+          blur={0.8}
+          backgroundIntensity={0.1}
+          environmentIntensity={0.5}
+        />
       </Canvas>
     </div>
   );
