@@ -221,7 +221,7 @@ function GameContainer() {
     isMobile.current = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
     // Initialize rotation sounds
-    const audioCount = isMobile.current ? 1 : 5;
+    const audioCount = isMobile.current ? 1 : 3;
     rotationSound.current = Array(audioCount)
       .fill(null)
       .map(() => {
