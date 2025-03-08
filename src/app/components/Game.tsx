@@ -1,13 +1,14 @@
 'use client';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useCallback, useState, useRef, useEffect, RefObject } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { useSpring, animated } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
 import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
 import { useThree } from '@react-three/fiber';
-import { PerspectiveCamera, MathUtils } from 'three';
+import { PerspectiveCamera as ThreePerspectiveCamera, MathUtils } from 'three';
+import { PerspectiveCamera } from '@react-three/drei';
 
 // Relative offset position
 type NEIGHBOR = [number, number];
@@ -393,7 +394,40 @@ function GameContainer() {
   );
 }
 
-const fov = 50;
+const DEFAULT_FOV = 50;
+
+const CameraController = ({
+  fov,
+  setFov,
+  cameraRef,
+}: {
+  fov: number;
+  setFov: (fov: number) => void;
+  cameraRef: RefObject<ThreePerspectiveCamera | null>;
+}) => {
+  useEffect(() => {
+    const updateCamera = () => {
+      if (!cameraRef.current) return;
+      const gridAspect = GRID_DIMENSIONS[0] / GRID_DIMENSIONS[1];
+      if (cameraRef.current.aspect > gridAspect) {
+        setFov(DEFAULT_FOV);
+      } else {
+        // window too narrow
+        const cameraHeight = Math.tan(MathUtils.degToRad(fov / 2));
+        const ratio = cameraRef.current.aspect / gridAspect;
+        const newCameraHeight = cameraHeight / ratio;
+        const newFov = MathUtils.radToDeg(Math.atan(newCameraHeight)) * 2.0;
+        setFov(newFov);
+      }
+    };
+
+    updateCamera();
+    window.addEventListener('resize', updateCamera);
+    return () => window.removeEventListener('resize', updateCamera);
+  }, []);
+
+  return null;
+};
 
 function App() {
   const {
@@ -406,32 +440,9 @@ function App() {
   } = useGameStore();
   const resetSound = useRef<HTMLAudioElement | null>(null);
 
-  const CameraController = () => {
-    const { camera: tc, size } = useThree();
+  const [fov, setFov] = useState(DEFAULT_FOV);
 
-    useEffect(() => {
-      const updateCamera = () => {
-        const camera = tc as PerspectiveCamera;
-        const gridAspect = GRID_DIMENSIONS[0] / GRID_DIMENSIONS[1];
-        if (camera.aspect > gridAspect) {
-          // window too large
-          camera.fov = fov;
-        } else {
-          // window too narrow
-          const cameraHeight = Math.tan(MathUtils.degToRad(fov / 2));
-          const ratio = camera.aspect / gridAspect;
-          const newCameraHeight = cameraHeight / ratio;
-          camera.fov = MathUtils.radToDeg(Math.atan(newCameraHeight)) * 2;
-        }
-      };
-
-      updateCamera();
-      window.addEventListener('resize', updateCamera);
-      return () => window.removeEventListener('resize', updateCamera);
-    }, [tc, size]);
-
-    return null;
-  };
+  const cameraRef = useRef<ThreePerspectiveCamera>(null);
 
   useEffect(() => {
     resetSound.current = new Audio('/flip/reset.mp3');
@@ -500,15 +511,21 @@ function App() {
       </button>
       <Canvas
         style={{ width: '100%', height: '100%' }}
-        camera={{
-          type: 'PerspectiveCamera',
-          position: [0, 0, 50],
-          fov,
-          near: 0.1,
-          far: 1000,
-        }}
+        // camera={{
+        //   type: 'PerspectiveCamera',
+        //   position: [0, 0, 50],
+        //   fov,
+        //   near: 0.1,
+        //   far: 1000,
+        // }}
       >
-        <CameraController />
+        <PerspectiveCamera
+          makeDefault
+          fov={fov}
+          position={[0, 0, 50]}
+          ref={cameraRef}
+        />
+        <CameraController fov={fov} setFov={setFov} cameraRef={cameraRef} />
         <ambientLight intensity={0.9} />
         <pointLight position={[-10, -10, 20]} intensity={500} />
         <pointLight position={[10, 10, 20]} intensity={500} />
