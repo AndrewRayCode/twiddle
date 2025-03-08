@@ -7,8 +7,15 @@ import { useSpring, animated } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
 import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
 import { useThree } from '@react-three/fiber';
-import { PerspectiveCamera as ThreePerspectiveCamera, MathUtils } from 'three';
+import {
+  PerspectiveCamera as ThreePerspectiveCamera,
+  MathUtils,
+  Mesh,
+  Material,
+} from 'three';
 import { PerspectiveCamera } from '@react-three/drei';
+import { useGLTF } from '@react-three/drei';
+import { GLTF } from 'three-stdlib';
 
 // Relative offset position
 type NEIGHBOR = [number, number];
@@ -33,7 +40,18 @@ const PIPE_LENGTH = 2.0;
 const BASE_HEIGHT = 2.0;
 const PIPE_COLOR = '#ddccff';
 const BASE_COLOR = '#666677';
+
 const BASE_COLOR_HOVER = '#8899ff';
+
+// Add type for the GLB model
+type GLTFResult = GLTF & {
+  nodes: {
+    Cylinder: Mesh; // Make sure this matches the name of your mesh in the GLB file
+  };
+  materials: {
+    PipeMaterial: Material; // Make sure this matches the material name
+  };
+};
 
 interface PipeProps {
   color: string | null;
@@ -52,6 +70,7 @@ function Pipe({
   position = [0, 0, 0],
   onClick,
 }: PipeProps) {
+  const { nodes, materials } = useGLTF('/flip/Pipe.glb') as GLTFResult;
   const { hoveredCell, setHoveredCell, rotating } = useGameStore();
   const hovered =
     !rotating &&
@@ -62,13 +81,13 @@ function Pipe({
   const { springRotation } = useSpring({
     springRotation: (rotation * Math.PI) / 2,
     config: {
-      mass: 1.8,
-      tension: 450,
-      friction: 40,
+      mass: 1,
+      tension: 800,
+      friction: 30,
     },
   });
   const { springPipeColor, springBaseColor } = useSpring({
-    springPipeColor: color ? '#eeddff' : PIPE_COLOR,
+    springPipeColor: color ? '#ff5577' : PIPE_COLOR,
     springBaseColor: color || (hovered ? BASE_COLOR_HOVER : BASE_COLOR),
     config: {
       mass: 2,
@@ -84,25 +103,16 @@ function Pipe({
       onPointerOver={() => setHoveredCell([row, col])}
       onPointerOut={() => setHoveredCell(null)}
     >
-      {/* Vertical section */}
-      <mesh position={[0, -1.0, 0]}>
-        <cylinderGeometry args={[0.3, 0.3, PIPE_LENGTH, 16]} />
+      {/* Main pipe model */}
+      <mesh geometry={nodes.Cylinder.geometry} onClick={onClick}>
         <animated.meshStandardMaterial
           color={springPipeColor}
           roughness={0.2}
           metalness={0.5}
         />
       </mesh>
-      {/* Horizontal section */}
-      <mesh position={[1.0, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.3, 0.3, PIPE_LENGTH, 16]} />
-        <animated.meshStandardMaterial
-          color={springPipeColor}
-          roughness={0.2}
-          metalness={0.5}
-        />
-      </mesh>
-      {/* Round base */}
+
+      {/* Base cylinder */}
       <mesh
         position={[0, 0, -BASE_HEIGHT / 2]}
         rotation={[Math.PI / 2, 0, 0]}
@@ -115,21 +125,6 @@ function Pipe({
           metalness={0.7}
         />
       </mesh>
-      {/* <Html>
-        <div
-          style={{
-            backgroundColor: 'white',
-            whiteSpace: 'nowrap',
-            color: 'black',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            pointerEvents: 'none',
-          }}
-        >
-          {idx}
-        </div>
-      </Html> */}
     </animated.group>
   );
 }
@@ -315,13 +310,16 @@ function GameContainer() {
 
     let newNeighborsToRotate: CELL[] = [];
 
+    // Update all of the new rotations *before* we find neighbors
     const newRotations = [...rotations.map((row) => [...row])];
-
     cells.forEach(([row, col]) => {
       const newUnboundRotation = newRotations[col][row] + 1;
-      const newRotation = (newUnboundRotation % 4) as ROTATION;
-
       newRotations[col][row] = newUnboundRotation;
+    });
+
+    // Find the new neighbors for the rotated cells
+    cells.forEach(([row, col]) => {
+      const newRotation = (newRotations[col][row] % 4) as ROTATION;
 
       const neighbors = findNeighborsToRotate(
         row,
@@ -334,11 +332,13 @@ function GameContainer() {
         newNeighborsToRotate.push([row, col]);
       }
     });
-
     newNeighborsToRotate = dedupeNeighbors(newNeighborsToRotate);
 
+    // Save the rotations (triggers the UI update)
     setRotations(newRotations);
 
+    // Schedule the next rotation, which will be rotating all of the cells that
+    // are currently rotating.
     setTimeout(
       () => {
         setCellsToRotate(newNeighborsToRotate);
@@ -534,5 +534,8 @@ function App() {
     </div>
   );
 }
+
+// Add this at the end of the file to preload the model
+useGLTF.preload('/flip/Pipe.glb');
 
 export default App;
