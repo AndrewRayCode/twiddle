@@ -1,7 +1,14 @@
 'use client';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useCallback, useState, useRef, useEffect, RefObject } from 'react';
+import {
+  useCallback,
+  useState,
+  useRef,
+  useEffect,
+  RefObject,
+  useMemo,
+} from 'react';
 import { Canvas } from '@react-three/fiber';
 import { useSpring, animated } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
@@ -196,6 +203,111 @@ const groupColors = [
   '#D9B3FF', // Light Purple
 ];
 
+const findConnectedNeighbors = (
+  // The current cell row and column to start searching from
+  row: number,
+  col: number,
+  // The current cell's rotation (to figure out what direction to search in)
+  rotation: ROTATION,
+  // The current board rotations
+  currentRotations: number[][],
+) => {
+  const neighborsToRotate: CELL[] = [];
+  // Check each direction from this pipe
+  RotationNeighbors[rotation].forEach(([dx, dy]) => {
+    // TODO: I think row is actually x? and col is actually Y?
+    const nx = row + dx;
+    const ny = col + dy;
+    const neighborUnbounded = currentRotations[ny]?.[nx];
+    if (neighborUnbounded !== undefined) {
+      const neighbor = (neighborUnbounded % 4) as ROTATION;
+      // Then make sure the neighbor points back at us
+      const neighborPointsAtUsToo = RotationNeighbors[neighbor].some(
+        ([ndx, ndy]) => {
+          const points = nx + ndx === row && ny + ndy === col;
+          return points;
+        },
+      );
+      if (neighborPointsAtUsToo) {
+        neighborsToRotate.push([nx, ny]);
+      }
+    }
+  });
+  return neighborsToRotate;
+};
+
+const findLongestPathInDirection = (
+  cellX: number,
+  cellY: number,
+  unboundRotation: number,
+  rotations: number[][],
+  directionWeCameFrom: 0 | 1,
+  seen: Record<number, Set<number>>,
+): CELL[] => {
+  seen[cellX] = (seen[cellX] || new Set()).add(cellY);
+  const direction = directionWeCameFrom === 1 ? 0 : 1;
+  const rotation = (unboundRotation % 4) as ROTATION;
+  const test = RotationNeighbors[rotation][direction];
+  const nx = cellX + test[0];
+  const ny = cellY + test[1];
+  const nr = rotations[ny]?.[nx];
+  if (nr === undefined) {
+    return [];
+  }
+  const neighbor = (rotations[ny]?.[nx] % 4) as ROTATION;
+  if (seen[nx]?.has(ny)) {
+    return [];
+  }
+  if (neighbor !== undefined) {
+    const neighborPointsAtUsToo = RotationNeighbors[neighbor].findIndex(
+      ([ndx, ndy]) => {
+        const points = nx + ndx === cellX && ny + ndy === cellY;
+        return points;
+      },
+    );
+    if (neighborPointsAtUsToo !== -1) {
+      return [[nx, ny] as CELL].concat(
+        findLongestPathInDirection(
+          nx,
+          ny,
+          neighbor,
+          rotations,
+          neighborPointsAtUsToo as 0 | 1,
+          seen,
+        ),
+      );
+    }
+  }
+  return [];
+};
+
+const findLongestPathFrom = (
+  rotations: number[][],
+  startingCells: CELL[],
+  seen: Record<number, Set<number>>,
+) => {
+  return startingCells.reduce<CELL[]>((path, c) => {
+    const r = (rotations[c[1]][c[0]] % 4) as ROTATION;
+    const pathFromHere = [
+      c,
+      // Search both directions out the sides of this pipe
+      ...findLongestPathInDirection(c[0], c[1], r, rotations, 0, seen),
+      ...findLongestPathInDirection(c[0], c[1], r, rotations, 1, seen),
+    ];
+    return pathFromHere.length > path.length ? pathFromHere : path;
+  }, []);
+};
+
+const TILE_OFFSET = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2;
+
+const leftCells = new Array(GRID_DIMENSIONS[1])
+  .fill(0)
+  .map((_, i) => [0, i] as CELL);
+
+const topCells = new Array(GRID_DIMENSIONS[1])
+  .fill(0)
+  .map((_, i) => [i, 0] as CELL);
+
 function GameContainer() {
   const {
     rotations,
@@ -208,6 +320,7 @@ function GameContainer() {
     setIslandBonus,
     islandBonus,
     resetScore,
+    hoveredCell,
   } = useGameStore();
 
   // Create a single audio instance and preload it
@@ -262,34 +375,7 @@ function GameContainer() {
     }
   }, []);
 
-  const findNeighborsToRotate = (
-    row: number,
-    col: number,
-    rotation: ROTATION,
-    currentRotations: number[][],
-  ) => {
-    const neighborsToRotate: CELL[] = [];
-    RotationNeighbors[rotation].forEach(([dx, dy]) => {
-      const nx = row + dx;
-      const ny = col + dy;
-      const neighborUnbounded = currentRotations[ny]?.[nx];
-      if (neighborUnbounded !== undefined) {
-        const neighbor = (neighborUnbounded % 4) as ROTATION;
-        const neighborPointsAtUsToo = RotationNeighbors[neighbor].some(
-          ([ndx, ndy]) => {
-            const points = nx + ndx === row && ny + ndy === col;
-            return points;
-          },
-        );
-        if (neighborPointsAtUsToo) {
-          neighborsToRotate.push([nx, ny]);
-        }
-      }
-    });
-    return neighborsToRotate;
-  };
-
-  const rotateCells = (rotations: number[][], cells: CELL[]) => {
+  const rotateCells = useCallback((rotations: number[][], cells: CELL[]) => {
     setRotating(true);
 
     addToRotationCount(cells.length);
@@ -332,7 +418,7 @@ function GameContainer() {
     cells.forEach(([row, col]) => {
       const newRotation = (newRotations[col][row] % 4) as ROTATION;
 
-      const neighbors = findNeighborsToRotate(
+      const neighbors = findConnectedNeighbors(
         row,
         col,
         newRotation,
@@ -352,7 +438,9 @@ function GameContainer() {
     // are currently rotating.
     setTimeout(
       () => {
-        setCellsToRotate(newNeighborsToRotate);
+        // setCellsToRotate(newNeighborsToRotate);
+        setRotating(false);
+        return;
         if (newNeighborsToRotate.length === 0) {
           setRotating(false);
           resetScore();
@@ -360,18 +448,26 @@ function GameContainer() {
           rotateCells(newRotations, newNeighborsToRotate);
         }
       },
-      islandBonus > 1 ? 2000 : 800,
+      0 * (islandBonus > 1 ? 2000 : 800),
     );
-  };
+  }, []);
 
   const handleClick = (row: number, col: number) => {
-    if (rotating) return;
+    if (rotating) {
+      return;
+    }
     resetScore();
-    setCellsToRotate([[row, col]]);
     rotateCells(rotations, [[row, col]]);
   };
 
-  const offset = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2;
+  const thingies: CELL[] = useMemo(() => {
+    const seen: Record<number, Set<number>> = {};
+    const longestLeftRight = findLongestPathFrom(rotations, leftCells, seen);
+    if (GRID_DIMENSIONS[0] - 1 in seen) {
+      return longestLeftRight;
+    }
+    return [];
+  }, [rotations]);
 
   return (
     <>
@@ -380,12 +476,15 @@ function GameContainer() {
           const cell = cellsToRotate.find(
             ([nx, ny]) => nx === rowIndex && ny === colIndex,
           );
+          const cell2 = thingies.find(
+            ([nx, ny]) => nx === rowIndex && ny === colIndex,
+          );
           return (
             <Pipe
               key={`${rowIndex}-${colIndex}`}
               position={[
-                rowIndex * TILE_SPACING - offset,
-                -(colIndex * TILE_SPACING - offset),
+                rowIndex * TILE_SPACING - TILE_OFFSET,
+                -(colIndex * TILE_SPACING - TILE_OFFSET),
                 0,
               ]}
               rotation={rotation}
@@ -394,9 +493,11 @@ function GameContainer() {
               onClick={() => handleClick(rowIndex, colIndex)}
               isRotating={!!cell}
               islandColor={
-                islandBonus > 1 && cell
-                  ? groupColors[islands.findIndex((i) => i.has(cell))]
-                  : null
+                cell2
+                  ? 'red'
+                  : islandBonus > 1 && cell
+                    ? groupColors[islands.findIndex((i) => i.has(cell))]
+                    : null
               }
             />
           );
