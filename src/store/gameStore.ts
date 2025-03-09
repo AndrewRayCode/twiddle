@@ -15,12 +15,14 @@ interface GameState {
   highScore: number;
   islandBonus: number;
   hoveredCell: CELL | null;
+  edgeBonus: number;
   resetScore: () => void;
   setRotations: (rotations: number[][]) => void;
   setCellsToRotate: (neighbors: CELL[]) => void;
   setRotating: (rotating: boolean) => void;
   addToRotationCount: (count: number) => void;
   resetBoard: () => void;
+  setEdgeBonus: (bonus: number) => void;
   setIslandBonus: (bonus: number) => void;
   setHoveredCell: (cell: CELL | null) => void;
 }
@@ -40,14 +42,17 @@ export const useGameStore = create<GameState>()(
       rotationCount: 0,
       highScore: 0,
       islandBonus: 1,
+      edgeBonus: 1,
       hoveredCell: null,
+      setEdgeBonus: (bonus) => set({ edgeBonus: bonus }),
       resetScore: () => set({ rotationCount: 0 }),
       setRotations: (rotations) => set({ rotations }),
       setCellsToRotate: (neighbors) => set({ cellsToRotate: neighbors }),
       setRotating: (rotating) => set({ rotating }),
       addToRotationCount: (count) =>
         set((state) => {
-          const score = (state.rotationCount + count) * state.islandBonus;
+          const score =
+            (state.rotationCount + count) * state.islandBonus * state.edgeBonus;
           return {
             rotationCount: score,
             highScore: Math.max(score, state.highScore),
