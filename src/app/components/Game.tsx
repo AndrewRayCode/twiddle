@@ -384,8 +384,6 @@ function GameContainer() {
   const rotateCells = useCallback((rotations: number[][], cells: CELL[]) => {
     setRotating(true);
 
-    addToRotationCount(cells.length);
-
     // Check for edge to edge
     const seenLr: Record<number, Set<number>> = {};
     const longestLeftRight = findLongestPathFrom(rotations, leftCells, seenLr);
@@ -431,6 +429,9 @@ function GameContainer() {
         bonusSound.current.play().catch(console.error);
       }
     }
+
+    // After bonuses have been calculated, add to the score
+    addToRotationCount(cells.length);
 
     // Play up to n rotation sounds, increasing the more rotations there are,
     // with a slight jitter offset
