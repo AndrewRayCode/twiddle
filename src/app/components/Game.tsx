@@ -92,9 +92,9 @@ const groupColors = [
 ];
 
 const findConnectedNeighbors = (
-  // The current cell row and column to start searching from
-  row: number,
-  col: number,
+  // The current cell location to start searching from
+  x: number,
+  y: number,
   // The current cell's rotation (to figure out what direction to search in)
   rotation: ROTATION,
   // The current board rotations
@@ -103,15 +103,15 @@ const findConnectedNeighbors = (
   const neighborsToRotate: CELL[] = [];
   // Check each direction from this pipe
   RotationNeighbors[rotation].forEach(([dx, dy]) => {
-    const nx = row + dx;
-    const ny = col + dy;
+    const nx = x + dx;
+    const ny = y + dy;
     const neighborUnbounded = currentRotations[ny]?.[nx];
     if (neighborUnbounded !== undefined) {
       const neighbor = (neighborUnbounded % 4) as ROTATION;
       // Then make sure the neighbor points back at us
       const neighborPointsAtUsToo = RotationNeighbors[neighbor].some(
         ([ndx, ndy]) => {
-          const points = nx + ndx === row && ny + ndy === col;
+          const points = nx + ndx === x && ny + ndy === y;
           return points;
         },
       );
@@ -124,19 +124,19 @@ const findConnectedNeighbors = (
 };
 
 const findLongestPathInDirection = (
-  cellX: number,
-  cellY: number,
+  x: number,
+  y: number,
   unboundRotation: number,
   rotations: number[][],
   directionWeCameFrom: 0 | 1,
   seen: Record<number, Set<number>>,
 ): CELL[] => {
-  seen[cellX] = (seen[cellX] || new Set()).add(cellY);
+  seen[x] = (seen[x] || new Set()).add(y);
   const direction = directionWeCameFrom === 1 ? 0 : 1;
   const rotation = (unboundRotation % 4) as ROTATION;
   const test = RotationNeighbors[rotation][direction];
-  const nx = cellX + test[0];
-  const ny = cellY + test[1];
+  const nx = x + test[0];
+  const ny = y + test[1];
   const nr = rotations[ny]?.[nx];
   if (nr === undefined) {
     return [];
@@ -148,7 +148,7 @@ const findLongestPathInDirection = (
   if (neighbor !== undefined) {
     const neighborPointsAtUsToo = RotationNeighbors[neighbor].findIndex(
       ([ndx, ndy]) => {
-        const points = nx + ndx === cellX && ny + ndy === cellY;
+        const points = nx + ndx === x && ny + ndy === y;
         return points;
       },
     );
