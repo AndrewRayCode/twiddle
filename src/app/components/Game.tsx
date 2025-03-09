@@ -6,7 +6,6 @@ import { Canvas } from '@react-three/fiber';
 import { useSpring, animated } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
 import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
-import { useThree } from '@react-three/fiber';
 import {
   PerspectiveCamera as ThreePerspectiveCamera,
   MathUtils,
@@ -35,110 +34,6 @@ const RotationNeighbors: Record<ROTATION, [NEIGHBOR, NEIGHBOR]> = {
   // ┐ left down
   [3]: [LEFT, DOWN],
 } as const;
-
-const BASE_HEIGHT = 1.3;
-
-const PIPE_COLOR = '#ddccff';
-const BASE_COLOR = '#555566';
-const BASE_ROTATING_COLOR = '#eeeeff';
-const BASE_COLOR_HOVER = '#8899ff';
-const PIPE_ROTATING_COLOR = '#ff5577';
-
-// Add type for the GLB model
-type GLTFResult = GLTF & {
-  nodes: {
-    Cylinder: Mesh; // Make sure this matches the name of your mesh in the GLB file
-  };
-  materials: {
-    PipeMaterial: Material; // Make sure this matches the material name
-  };
-};
-
-interface PipeProps {
-  isRotating: boolean;
-  islandColor: string | null;
-  rotation: number;
-  position?: [number, number, number];
-  onClick?: () => void;
-  row: number;
-  col: number;
-}
-
-function Pipe({
-  rotation,
-  isRotating,
-  islandColor,
-  row,
-  col,
-  position = [0, 0, 0],
-  onClick,
-}: PipeProps) {
-  const { nodes, materials } = useGLTF('/flip/Pipe.glb') as GLTFResult;
-  const { hoveredCell, setHoveredCell, rotating } = useGameStore();
-  const hovered =
-    !rotating &&
-    hoveredCell &&
-    hoveredCell[0] === row &&
-    hoveredCell[1] === col;
-
-  const { springRotation } = useSpring({
-    springRotation: (rotation * Math.PI) / 2,
-    config: {
-      mass: 0.7,
-      tension: 300,
-      friction: 20,
-    },
-  });
-  const { springPipeColor, springBaseColor } = useSpring({
-    springPipeColor:
-      islandColor || (isRotating ? PIPE_ROTATING_COLOR : PIPE_COLOR),
-    springBaseColor:
-      islandColor ||
-      (isRotating
-        ? BASE_ROTATING_COLOR
-        : hovered
-          ? BASE_COLOR_HOVER
-          : BASE_COLOR),
-    config: {
-      mass: 2,
-      tension: 800,
-      friction: 80,
-    },
-  });
-
-  return (
-    <animated.group
-      position={position}
-      rotation-z={springRotation}
-      onPointerOver={() => setHoveredCell([row, col])}
-      onPointerOut={() => setHoveredCell(null)}
-    >
-      {/* Main pipe model */}
-      <mesh geometry={nodes.Cylinder.geometry} onClick={onClick}>
-        <animated.meshStandardMaterial
-          color={springPipeColor}
-          // Experiment: Give variety to pipe roughness
-          roughness={(((col % 3) + (row % 3)) % 3) * 0.2}
-          metalness={0.8}
-        />
-      </mesh>
-
-      {/* Base cylinder */}
-      <mesh
-        position={[0, 0, -BASE_HEIGHT / 2]}
-        rotation={[Math.PI / 2, 0, 0]}
-        onClick={onClick}
-      >
-        <cylinderGeometry args={[1.95, 1.95, BASE_HEIGHT, 32]} />
-        <animated.meshStandardMaterial
-          color={springBaseColor}
-          roughness={0.6}
-          metalness={0.0}
-        />
-      </mesh>
-    </animated.group>
-  );
-}
 
 const islandSearch = (island: Set<CELL>, board: CELL[][], cell: CELL) => {
   if (cell === undefined || island.has(cell)) {
@@ -196,6 +91,220 @@ const groupColors = [
   '#D9B3FF', // Light Purple
 ];
 
+const findConnectedNeighbors = (
+  // The current cell location to start searching from
+  x: number,
+  y: number,
+  // The current cell's rotation (to figure out what direction to search in)
+  rotation: ROTATION,
+  // The current board rotations
+  currentRotations: number[][],
+) => {
+  const neighborsToRotate: CELL[] = [];
+  // Check each direction from this pipe
+  RotationNeighbors[rotation].forEach(([dx, dy]) => {
+    const nx = x + dx;
+    const ny = y + dy;
+    const neighborUnbounded = currentRotations[ny]?.[nx];
+    if (neighborUnbounded !== undefined) {
+      const neighbor = (neighborUnbounded % 4) as ROTATION;
+      // Then make sure the neighbor points back at us
+      const neighborPointsAtUsToo = RotationNeighbors[neighbor].some(
+        ([ndx, ndy]) => {
+          const points = nx + ndx === x && ny + ndy === y;
+          return points;
+        },
+      );
+      if (neighborPointsAtUsToo) {
+        neighborsToRotate.push([nx, ny]);
+      }
+    }
+  });
+  return neighborsToRotate;
+};
+
+const findLongestPathInDirection = (
+  x: number,
+  y: number,
+  unboundRotation: number,
+  rotations: number[][],
+  directionWeCameFrom: 0 | 1,
+  seen: Record<number, Set<number>>,
+): CELL[] => {
+  seen[x] = (seen[x] || new Set()).add(y);
+  const direction = directionWeCameFrom === 1 ? 0 : 1;
+  const rotation = (unboundRotation % 4) as ROTATION;
+  const test = RotationNeighbors[rotation][direction];
+  const nx = x + test[0];
+  const ny = y + test[1];
+  const nr = rotations[ny]?.[nx];
+  if (nr === undefined) {
+    return [];
+  }
+  const neighbor = (rotations[ny]?.[nx] % 4) as ROTATION;
+  if (seen[nx]?.has(ny)) {
+    return [];
+  }
+  if (neighbor !== undefined) {
+    const neighborPointsAtUsToo = RotationNeighbors[neighbor].findIndex(
+      ([ndx, ndy]) => {
+        const points = nx + ndx === x && ny + ndy === y;
+        return points;
+      },
+    );
+    if (neighborPointsAtUsToo !== -1) {
+      return [[nx, ny] as CELL].concat(
+        findLongestPathInDirection(
+          nx,
+          ny,
+          neighbor,
+          rotations,
+          neighborPointsAtUsToo as 0 | 1,
+          seen,
+        ),
+      );
+    }
+  }
+  return [];
+};
+
+const findLongestPathFrom = (
+  rotations: number[][],
+  startingCells: CELL[],
+  seen: Record<number, Set<number>>,
+) => {
+  return startingCells.reduce<CELL[]>((path, c) => {
+    const r = (rotations[c[1]][c[0]] % 4) as ROTATION;
+    const pathFromHere = [
+      c,
+      // Search both directions out the sides of this pipe
+      ...findLongestPathInDirection(c[0], c[1], r, rotations, 0, seen),
+      ...findLongestPathInDirection(c[0], c[1], r, rotations, 1, seen),
+    ];
+    return pathFromHere.length > path.length ? pathFromHere : path;
+  }, []);
+};
+
+const TILE_OFFSET = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2;
+
+const leftCells = new Array(GRID_DIMENSIONS[1])
+  .fill(0)
+  .map((_, i) => [0, i] as CELL);
+
+const topCells = new Array(GRID_DIMENSIONS[0])
+  .fill(0)
+  .map((_, i) => [i, 0] as CELL);
+
+const BASE_HEIGHT = 1.3;
+
+const PIPE_COLOR = '#ddccff';
+const BASE_COLOR = '#555566';
+const BASE_ROTATING_COLOR = '#eeeeff';
+const BASE_COLOR_HOVER = '#8899ff';
+const PIPE_ROTATING_COLOR = '#ff5577';
+const PIPE_EDGE_BONUS_COLOR = '#00ff00';
+const BASE_EDGE_BONUS_COLOR = '#00ff00';
+
+// Add type for the GLB model
+type GLTFResult = GLTF & {
+  nodes: {
+    Cylinder: Mesh; // Make sure this matches the name of your mesh in the GLB file
+  };
+  materials: {
+    PipeMaterial: Material; // Make sure this matches the material name
+  };
+};
+
+interface PipeProps {
+  isRotating: boolean;
+  isEdgeToEdge: boolean;
+  islandColor: string | null;
+  rotation: number;
+  position?: [number, number, number];
+  onClick?: () => void;
+  row: number;
+  col: number;
+}
+
+function Pipe({
+  rotation,
+  isRotating,
+  isEdgeToEdge,
+  islandColor,
+  row,
+  col,
+  position = [0, 0, 0],
+  onClick,
+}: PipeProps) {
+  const { nodes } = useGLTF('/flip/Pipe.glb') as GLTFResult;
+  const { hoveredCell, setHoveredCell, rotating } = useGameStore();
+  const hovered =
+    !rotating &&
+    hoveredCell &&
+    hoveredCell[0] === row &&
+    hoveredCell[1] === col;
+
+  const { springRotation } = useSpring({
+    springRotation: (rotation * Math.PI) / 2,
+    config: {
+      mass: 0.7,
+      tension: 300,
+      friction: 20,
+    },
+  });
+  const { springPipeColor, springBaseColor } = useSpring({
+    springPipeColor: isEdgeToEdge
+      ? PIPE_EDGE_BONUS_COLOR
+      : islandColor || (isRotating ? PIPE_ROTATING_COLOR : PIPE_COLOR),
+    springBaseColor: isEdgeToEdge
+      ? BASE_EDGE_BONUS_COLOR
+      : islandColor ||
+        (isRotating
+          ? BASE_ROTATING_COLOR
+          : hovered
+            ? BASE_COLOR_HOVER
+            : BASE_COLOR),
+    config: {
+      mass: 2,
+      tension: 800,
+      friction: 80,
+    },
+  });
+
+  return (
+    <animated.group
+      position={position}
+      rotation-z={springRotation}
+      onPointerOver={() => setHoveredCell([row, col])}
+      onPointerOut={() => setHoveredCell(null)}
+    >
+      {/* Main pipe model */}
+      <mesh geometry={nodes.Cylinder.geometry} onClick={onClick}>
+        <animated.meshStandardMaterial
+          color={springPipeColor}
+          // Experiment: Give variety to pipe roughness
+          roughness={(((col % 3) + (row % 3)) % 3) * 0.2}
+          metalness={0.8}
+        />
+      </mesh>
+
+      {/* Base cylinder */}
+      <mesh
+        position={[0, 0, -BASE_HEIGHT / 2]}
+        rotation={[Math.PI / 2, 0, 0]}
+        onClick={onClick}
+      >
+        <cylinderGeometry args={[1.95, 1.95, BASE_HEIGHT, 32]} />
+        <animated.meshStandardMaterial
+          color={springBaseColor}
+          roughness={0.45}
+          metalness={0.0}
+        />
+      </mesh>
+    </animated.group>
+  );
+}
+
 function GameContainer() {
   const {
     rotations,
@@ -208,6 +317,7 @@ function GameContainer() {
     setIslandBonus,
     islandBonus,
     resetScore,
+    setEdgeBonus,
   } = useGameStore();
 
   // Create a single audio instance and preload it
@@ -215,9 +325,10 @@ function GameContainer() {
   const isMobile = useRef<boolean>(false);
 
   const [islands, setIslands] = useState<Set<CELL>[]>([]);
+  const [edgeToEdgeCells, setEdgeToEdgeCells] = useState<CELL[]>([]);
 
-  // Add new audio ref for bonus sound
   const bonusSound = useRef<HTMLAudioElement | null>(null);
+  const edgeBonusSound = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     isMobile.current = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -237,6 +348,10 @@ function GameContainer() {
     bonusSound.current.load();
     bonusSound.current.volume = 0.5;
 
+    edgeBonusSound.current = new Audio('/flip/gong.mp3');
+    edgeBonusSound.current.volume = 0.75;
+    edgeBonusSound.current.load();
+
     return () => {
       if (rotationSound.current) {
         rotationSound.current.forEach((l) => l.pause());
@@ -245,6 +360,10 @@ function GameContainer() {
       if (bonusSound.current) {
         bonusSound.current.pause();
         bonusSound.current = null;
+      }
+      if (edgeBonusSound.current) {
+        edgeBonusSound.current.pause();
+        edgeBonusSound.current = null;
       }
     };
   }, []);
@@ -262,49 +381,59 @@ function GameContainer() {
     }
   }, []);
 
-  const findNeighborsToRotate = (
-    row: number,
-    col: number,
-    rotation: ROTATION,
-    currentRotations: number[][],
-  ) => {
-    const neighborsToRotate: CELL[] = [];
-    RotationNeighbors[rotation].forEach(([dx, dy]) => {
-      const nx = row + dx;
-      const ny = col + dy;
-      const neighborUnbounded = currentRotations[ny]?.[nx];
-      if (neighborUnbounded !== undefined) {
-        const neighbor = (neighborUnbounded % 4) as ROTATION;
-        const neighborPointsAtUsToo = RotationNeighbors[neighbor].some(
-          ([ndx, ndy]) => {
-            const points = nx + ndx === row && ny + ndy === col;
-            return points;
-          },
-        );
-        if (neighborPointsAtUsToo) {
-          neighborsToRotate.push([nx, ny]);
-        }
-      }
-    });
-    return neighborsToRotate;
-  };
-
-  const rotateCells = (rotations: number[][], cells: CELL[]) => {
+  const rotateCells = useCallback((rotations: number[][], cells: CELL[]) => {
     setRotating(true);
 
     addToRotationCount(cells.length);
 
-    const islands = countIslands(cells).filter((i) => i.size > 2);
-    const islandBonus = Math.max(islands.length, 1);
-    setIslandBonus(islandBonus);
-    setIslands(islands);
+    // Check for edge to edge
+    const seenLr: Record<number, Set<number>> = {};
+    const longestLeftRight = findLongestPathFrom(rotations, leftCells, seenLr);
+    let isEdgeToEdge = GRID_DIMENSIONS[0] - 1 in seenLr;
 
-    // Play bonus sound if we have an island bonus
-    if (islandBonus > 1 && bonusSound.current) {
-      bonusSound.current.currentTime = 0;
-      bonusSound.current.play().catch(console.error);
+    const seenTb: Record<number, Set<number>> = {};
+    // Only check for top to bottom if there isn't left to right
+    const longestTopBottom = isEdgeToEdge
+      ? []
+      : findLongestPathFrom(rotations, topCells, seenTb);
+    isEdgeToEdge = Object.values(seenTb).some((v) =>
+      v.has(GRID_DIMENSIONS[1] - 1),
+    );
+
+    let islands: Set<CELL>[] = [];
+    let islandBonus = 1;
+
+    if (isEdgeToEdge) {
+      // First clear any islands
+      setIslandBonus(1);
+      setIslands([]);
+      // Then celebrate dammit
+      setEdgeToEdgeCells(
+        longestTopBottom.length > 0 ? longestTopBottom : longestLeftRight,
+      );
+      if (edgeBonusSound.current) {
+        edgeBonusSound.current.currentTime = 0;
+        edgeBonusSound.current.play().catch(console.error);
+      }
+      setEdgeBonus(10);
+    } else {
+      // Clear any edge bonus
+      setEdgeBonus(1);
+
+      islands = countIslands(cells).filter((i) => i.size > 2);
+      islandBonus = Math.max(islands.length, 1);
+      setIslandBonus(islandBonus);
+      setIslands(islands);
+
+      // Play bonus sound if we have an island bonus
+      if (islandBonus > 1 && bonusSound.current) {
+        bonusSound.current.currentTime = 0;
+        bonusSound.current.play().catch(console.error);
+      }
     }
 
+    // Play up to n rotation sounds, increasing the more rotations there are,
+    // with a slight jitter offset
     for (
       let i = 0;
       i < Math.max(Math.min(rotationSound.current!.length, cells.length), 1);
@@ -323,55 +452,68 @@ function GameContainer() {
 
     // Update all of the new rotations *before* we find neighbors
     const newRotations = [...rotations.map((row) => [...row])];
-    cells.forEach(([row, col]) => {
-      const newUnboundRotation = newRotations[col][row] + 1;
-      newRotations[col][row] = newUnboundRotation;
+    cells.forEach(([x, y]) => {
+      const newUnboundRotation = newRotations[y][x] + 1;
+      newRotations[y][x] = newUnboundRotation;
     });
 
     // Find the new neighbors for the rotated cells
-    cells.forEach(([row, col]) => {
-      const newRotation = (newRotations[col][row] % 4) as ROTATION;
+    cells.forEach(([x, y]) => {
+      const newRotation = (newRotations[y][x] % 4) as ROTATION;
 
-      const neighbors = findNeighborsToRotate(
-        row,
-        col,
-        newRotation,
-        newRotations,
-      );
+      const neighbors = findConnectedNeighbors(x, y, newRotation, newRotations);
       if (neighbors.length > 0) {
         newNeighborsToRotate.push(...neighbors);
-        newNeighborsToRotate.push([row, col]);
+        newNeighborsToRotate.push([x, y]);
       }
     });
     newNeighborsToRotate = dedupeNeighbors(newNeighborsToRotate);
 
-    // Save the rotations (triggers the UI update)
-    setRotations(newRotations);
-
-    // Schedule the next rotation, which will be rotating all of the cells that
-    // are currently rotating.
     setTimeout(
       () => {
-        setCellsToRotate(newNeighborsToRotate);
-        if (newNeighborsToRotate.length === 0) {
-          setRotating(false);
-          resetScore();
-        } else {
-          rotateCells(newRotations, newNeighborsToRotate);
+        // Save the rotations (triggers the UI update)
+        setRotations(newRotations);
+
+        if (isEdgeToEdge) {
+          setEdgeToEdgeCells([]);
+          setEdgeBonus(1);
         }
+
+        // Schedule the next rotation, which will be rotating all of the cells that
+        // are currently rotating.
+        setTimeout(
+          () => {
+            setCellsToRotate(newNeighborsToRotate);
+
+            if (newNeighborsToRotate.length === 0) {
+              setRotating(false);
+            } else {
+              rotateCells(newRotations, newNeighborsToRotate);
+            }
+          },
+          islandBonus > 1 ? 2000 : 800,
+        );
       },
-      islandBonus > 1 ? 2000 : 800,
+      // Longer pause for edge to edge
+      isEdgeToEdge ? 5000 : 0,
     );
-  };
+  }, []);
 
   const handleClick = (row: number, col: number) => {
-    if (rotating) return;
+    if (rotating) {
+      return;
+    }
+    // Reset the game
     resetScore();
+    setEdgeBonus(1);
+    setIslands([]);
+    setEdgeToEdgeCells([]);
+    setIslandBonus(1);
+    // Highlight the one we clicked on
     setCellsToRotate([[row, col]]);
+    // Start the new rotation
     rotateCells(rotations, [[row, col]]);
   };
-
-  const offset = (TILE_SPACING * (GRID_DIMENSIONS[0] - 1)) / 2;
 
   return (
     <>
@@ -380,12 +522,15 @@ function GameContainer() {
           const cell = cellsToRotate.find(
             ([nx, ny]) => nx === rowIndex && ny === colIndex,
           );
+          const isEdgeToEdge = edgeToEdgeCells.some(
+            ([nx, ny]) => nx === rowIndex && ny === colIndex,
+          );
           return (
             <Pipe
               key={`${rowIndex}-${colIndex}`}
               position={[
-                rowIndex * TILE_SPACING - offset,
-                -(colIndex * TILE_SPACING - offset),
+                rowIndex * TILE_SPACING - TILE_OFFSET,
+                -(colIndex * TILE_SPACING - TILE_OFFSET),
                 0,
               ]}
               rotation={rotation}
@@ -393,6 +538,7 @@ function GameContainer() {
               col={colIndex}
               onClick={() => handleClick(rowIndex, colIndex)}
               isRotating={!!cell}
+              isEdgeToEdge={isEdgeToEdge}
               islandColor={
                 islandBonus > 1 && cell
                   ? groupColors[islands.findIndex((i) => i.has(cell))]
@@ -417,6 +563,39 @@ const CameraController = ({
   setFov: (fov: number) => void;
   cameraRef: RefObject<ThreePerspectiveCamera | null>;
 }) => {
+  return null;
+};
+
+function App() {
+  const {
+    hoveredCell,
+    rotating,
+    resetBoard,
+    rotationCount,
+    highScore,
+    islandBonus,
+    edgeBonus,
+  } = useGameStore();
+  const resetSound = useRef<HTMLAudioElement | null>(null);
+
+  const [fov, setFov] = useState(DEFAULT_FOV);
+
+  const cameraRef = useRef<ThreePerspectiveCamera>(null);
+
+  useEffect(() => {
+    resetSound.current = new Audio('/flip/reset.mp3');
+    resetSound.current.load();
+    resetSound.current.volume = 0.25;
+
+    return () => {
+      if (resetSound.current) {
+        resetSound.current.pause();
+        resetSound.current = null;
+      }
+    };
+  }, []);
+
+  // Keep the board in view
   useEffect(() => {
     const updateCamera = () => {
       if (!cameraRef.current) return;
@@ -436,37 +615,6 @@ const CameraController = ({
     updateCamera();
     window.addEventListener('resize', updateCamera);
     return () => window.removeEventListener('resize', updateCamera);
-  }, []);
-
-  return null;
-};
-
-function App() {
-  const {
-    hoveredCell,
-    rotating,
-    resetBoard,
-    rotationCount,
-    highScore,
-    islandBonus,
-  } = useGameStore();
-  const resetSound = useRef<HTMLAudioElement | null>(null);
-
-  const [fov, setFov] = useState(DEFAULT_FOV);
-
-  const cameraRef = useRef<ThreePerspectiveCamera>(null);
-
-  useEffect(() => {
-    resetSound.current = new Audio('/flip/reset.mp3');
-    resetSound.current.load();
-    resetSound.current.volume = 0.25;
-
-    return () => {
-      if (resetSound.current) {
-        resetSound.current.pause();
-        resetSound.current = null;
-      }
-    };
   }, []);
 
   const handleReset = () => {
@@ -513,12 +661,24 @@ function App() {
             </span>
           </div>
         )}
+        {edgeBonus > 1 && (
+          <div
+            className="animate-[flash_0.5s_ease-in-out_infinite] 
+            bg-gradient-to-r from-blue-500/20 to-purple-500/20 
+            px-3 py-1 rounded-md border border-blue-400/30
+            text-blue-100 font-semibold flex items-center gap-2"
+          >
+            <span className="text-blue-300">Edge Bonus:</span>
+            <span className="font-mono text-lg text-purple-300">10x</span>
+          </div>
+        )}
       </div>
       <button
         className="absolute top-4 right-4 px-6 py-3 rounded-lg 
           font-semibold transition-all duration-300 ease-in-out
           bg-gradient-to-b from-blue-400 to-blue-600
-          text-white text-shadow-sm
+          text-white text-shadow-sm border-t
+          md:px-8 md:py-3 text-xs md:text-base 
           hover:from-blue-500 hover:to-blue-700 hover:scale-105
           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 
           disabled:hover:from-blue-400 disabled:hover:to-blue-600"
@@ -538,7 +698,6 @@ function App() {
           position={[0, 0, 50]}
           ref={cameraRef}
         />
-        <CameraController fov={fov} setFov={setFov} cameraRef={cameraRef} />
         <ambientLight intensity={0.1} />
         <pointLight position={[-10, -10, 20]} intensity={500} />
         <pointLight position={[10, 10, 20]} intensity={500} />
