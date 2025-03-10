@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useCallback, useState, useRef, useEffect, RefObject } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { useSpring, animated } from '@react-spring/three';
+import { useSpring, animated, update } from '@react-spring/three';
 import { CELL, ROTATION, useGameStore } from '@/store/gameStore';
 import { GRID_DIMENSIONS, TILE_SPACING } from '@/constants';
 import {
@@ -555,18 +555,6 @@ function GameContainer() {
 
 const DEFAULT_FOV = 50;
 
-const CameraController = ({
-  fov,
-  setFov,
-  cameraRef,
-}: {
-  fov: number;
-  setFov: (fov: number) => void;
-  cameraRef: RefObject<ThreePerspectiveCamera | null>;
-}) => {
-  return null;
-};
-
 function App() {
   const {
     hoveredCell,
@@ -579,7 +567,9 @@ function App() {
   } = useGameStore();
   const resetSound = useRef<HTMLAudioElement | null>(null);
 
-  const [fov, setFov] = useState(DEFAULT_FOV);
+  // Initialize fov to -1 so that the setFov() call based on camera aspect works
+  // correclty to force a re-render
+  const [fov, setFov] = useState(DEFAULT_FOV - 1);
 
   const cameraRef = useRef<ThreePerspectiveCamera>(null);
 
@@ -596,10 +586,21 @@ function App() {
     };
   }, []);
 
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Keep the board in view
   useEffect(() => {
     const updateCamera = () => {
-      if (!cameraRef.current) return;
+      // I don't know when to figure out when camera is ready
+      if (!cameraRef.current?.aspect) {
+        // Just in case we're called multiple times
+        clearTimeout(timeoutRef.current!);
+        timeoutRef.current = setTimeout(() => {
+          updateCamera();
+        }, 100);
+        return;
+      }
+
       const gridAspect = GRID_DIMENSIONS[0] / GRID_DIMENSIONS[1];
       if (cameraRef.current.aspect > gridAspect) {
         setFov(DEFAULT_FOV);
@@ -615,7 +616,10 @@ function App() {
 
     updateCamera();
     window.addEventListener('resize', updateCamera);
-    return () => window.removeEventListener('resize', updateCamera);
+    return () => {
+      clearTimeout(timeoutRef.current!);
+      window.removeEventListener('resize', updateCamera);
+    };
   }, []);
 
   const handleReset = () => {
@@ -702,7 +706,8 @@ function App() {
         <ambientLight intensity={0.1} />
         <pointLight position={[-10, -10, 20]} intensity={500} />
         <pointLight position={[10, 10, 20]} intensity={500} />
-        <GameContainer />
+        {/* Hack to get board to pop in at right size rather than flash wrong size first on mobile */}
+        {fov && cameraRef.current?.aspect !== undefined && <GameContainer />}
         <Environment
           preset="sunset"
           background
